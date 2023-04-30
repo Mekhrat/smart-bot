@@ -34,7 +34,7 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     public Page<Item> getTopItemsByType(ItemType type, Integer page, Integer size) {
-        //todo sort by
+        // todo sort by
         return itemRepository.getItemsByType(type, PageRequest.of(page, size, Sort.by("newPrice").descending()));
     }
 

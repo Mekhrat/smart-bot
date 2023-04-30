@@ -3,13 +3,13 @@ package kz.kaznu.smartbot;
 import kz.kaznu.smartbot.models.dto.ConsumerInfo;
 import kz.kaznu.smartbot.models.dto.ItemParamsDto;
 import kz.kaznu.smartbot.models.entities.*;
-import kz.kaznu.smartbot.models.enums.CallbackData;
+import kz.kaznu.smartbot.models.enums.*;
 import kz.kaznu.smartbot.models.enums.Role;
-import kz.kaznu.smartbot.models.enums.Status;
 import kz.kaznu.smartbot.services.*;
 import kz.kaznu.smartbot.utils.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.aspectj.weaver.ast.Or;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -29,7 +29,10 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.File;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -46,7 +49,8 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
     private final CartService cartService;
     private final OrderService orderService;
 
-    private final static String PHOTO_URL = "C:/Users/User/IdeaProjects/smart/src/main/resources/static/images/smartphones/";
+    @Value("${PHOTO_URL}")
+    private String PHOTO_URL;
 
     @Value("${bot.name}")
     private String botName;
@@ -69,8 +73,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
         log.info("REQUEST: {}", update);
         if (update.hasMessage()) {
             handleMessage(update.getMessage());
-        }
-        else if (update.hasCallbackQuery()) {
+        } else if (update.hasCallbackQuery()) {
             handleCallbackQuery(update.getCallbackQuery());
         }
     }
@@ -79,20 +82,19 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
     @Override
     public void handleMessage(Message message) {
         TelegramUser user = userService.getOrCreateUser(message);
-         if (message.hasText()) {
-             if (user.getRole().equals(Role.USER)) {
-                 handleMessageText(user, message.getText());
-             }
-             else if (user.getRole().equals(Role.COURIER)) {
-                 handleCourierMessageText(user, message.getText());
-             }
-         }
-         userService.save(user);
+        if (message.hasText()) {
+            if (user.getRole().equals(Role.USER)) {
+                handleMessageText(user, message.getText());
+            } else if (user.getRole().equals(Role.COURIER)) {
+                handleCourierMessageText(user, message.getText());
+            }
+        }
+        userService.save(user);
     }
 
     @Override
     public void handleMessageText(TelegramUser user, String message) {
-        /*
+        /**
          * HANDLE TEXT
          */
         if (message.equals(properties.getProperty("bot.commands.start"))) {
@@ -102,96 +104,98 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                     null,
                     "Smart-Logo-1998.png");
             sendMenuMessage(user);
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.backToMenu"))) {
+        } else if (message.equals(properties.getProperty("bot.buttons.backToMenu"))) {
             user.setStatus(Status.EMPTY);
             sendMenuMessage(user);
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.login"))) {
+        } else if (message.equals(properties.getProperty("bot.buttons.login"))) {
             user.setStatus(Status.SEND_EMAIL);
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.messages.sendEmail"),
                     keyboards.getNButtons(properties.getProperty("bot.buttons.backToMenu")));
+        } else if (message.equals(properties.getProperty("bot.buttons.logout"))) {
+            user.setStatus(Status.EMPTY);
+            sessionService.logout(user);
+            sendMenuMessage(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.items"))) {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.selectItemType"),
+                    keyboards.getNButtons(properties.getProperty("bot.buttons.search"), properties.getProperty("bot.buttons.smartphones"), properties.getProperty("bot.buttons.headphones"), properties.getProperty("bot.buttons.smartwhaches"), properties.getProperty("bot.buttons.backToMenu")));
+        } else if (message.equals(properties.getProperty("bot.buttons.myOrders"))) {
+            sendListMyOrdersByUser(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.favorites"))) {
+            sendFavoriteItemsByUser(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.cart"))) {
+            sendItemsInCartByUser(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.contacts"))) {
+            sendPhoto(user.getChatId(),
+                    properties.getProperty("bot.message.contacts"),
+                    keyboards.getContactButtons(),
+                    "Smart-Logo-1998.png");
+        } else if (message.equals(properties.getProperty("bot.buttons.search"))) {
+            user.setStatus(Status.SEARCH);
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.search"),
+                    keyboards.getNButtons(properties.getProperty("bot.buttons.backToMenu")));
+        } else if (message.equals(properties.getProperty("bot.buttons.smartphones"))) {
+            showItemsByItemType(user, ItemType.SMARTPHONE);
+        } else if (message.equals(properties.getProperty("bot.buttons.headphones"))) {
+            showItemsByItemType(user, ItemType.HEADPHONE);
+        } else if (message.equals(properties.getProperty("bot.buttons.smartwhaches"))) {
+            showItemsByItemType(user, ItemType.SMARTWATCH);
+        } else if (message.equals(properties.getProperty("bot.buttons.removeCart"))) {
+            deleteAllItemsInCart(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.createNewOrder"))) {
+            checkSessionAndSendFullNameMessage(user);
+        } else if (message.equals(properties.getProperty("bot.buttons.next"))) {
+            createNewOrder(user, "");
+        }
+
+        /**
+         * HANDLE STATUS
+         */
+        else if (user.getStatus().equals(Status.SEND_EMAIL)) {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.messages.checkEmail"),
+                    null);
+            checkEmailAndSendActivateCode(user, message);
+        } else if (user.getStatus().equals(Status.SEND_ACTIVATE_CODE)) {
+            checkActivateCodeAndUpdateSession(user, message);
+        } else if (user.getStatus().equals(Status.SEND_FULL_NAME)) {
+            checkSessionAndSendPhoneMessage(user, message);
+        } else if (user.getStatus().equals(Status.SEND_PHONE)) {
+            checkSessionAndSendAddressMessage(user, message);
+        } else if (user.getStatus().equals(Status.SEND_ADDRESS)) {
+            checkSessionAndSendIndexAMessage(user, message);
+        } else if (user.getStatus().equals(Status.SEND_INDEX)) {
+            createNewOrder(user, message);
+        } else if (user.getStatus().equals(Status.SEARCH)) {
+            sendSearchItemsByTest(user, message);
+        }
+    }
+
+
+    @Override
+    public void handleCourierMessageText(TelegramUser user, String message) {
+        if (message.equals(properties.getProperty("bot.commands.start"))) {
+            user.setStatus(Status.EMPTY);
+            sendCourierMenuMessage(user);
         }
         else if (message.equals(properties.getProperty("bot.buttons.logout"))) {
             user.setStatus(Status.EMPTY);
             sessionService.logout(user);
             sendMenuMessage(user);
         }
-        else if (message.equals(properties.getProperty("bot.buttons.items"))) {
-            sendMessage(user.getChatId(),
-                    properties.getProperty("bot.message.selectItemType"),
-                    keyboards.getNButtons(properties.getProperty("bot.buttons.search"), properties.getProperty("bot.buttons.smartphones"), properties.getProperty("bot.buttons.headphones"), properties.getProperty("bot.buttons.smartwhaches"), properties.getProperty("bot.buttons.backToMenu")));
+        else if (message.equals(properties.getProperty("bot.buttons.courierOrders"))) {
+            sendCourierOrders(user);
         }
-        else if (message.equals(properties.getProperty("bot.buttons.myOrders"))) {
-            sendListMyOrdersByUser(user);
+        else if (message.equals(properties.getProperty("bot.buttons.courierDeliveredOrders"))) {
+            sendCourierDeliveredOrders(user);
         }
-        else if (message.equals(properties.getProperty("bot.buttons.favorites"))) {
-            sendFavoriteItemsByUser(user);
+        else if (user.getStatus().equals(Status.CONFIRM_ORDER)) {
+            checkOrderCode(user, message);
         }
-        else if (message.equals(properties.getProperty("bot.buttons.cart"))) {
-            sendItemsInCartByUser(user);
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.contacts"))) {
-            sendPhoto(user.getChatId(),
-                    properties.getProperty("bot.message.contacts"),
-                    keyboards.getContactButtons(),
-                    "Smart-Logo-1998.png");
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.search"))) {
-            //todo
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.smartphones"))) {
-            //todo
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.headphones"))) {
-            //todo
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.smartwhaches"))) {
-            //todo
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.removeCart"))) {
-            deleteAllItemsInCart(user);
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.createNewOrder"))) {
-            checkSessionAndSendFullNameMessage(user);
-        }
-        else if (message.equals(properties.getProperty("bot.buttons.next"))) {
-            createNewOrder(user, "");
-        }
-
-        /*
-        * HANDLE STATUS
-        */
-        else if (user.getStatus().equals(Status.SEND_EMAIL)) {
-            sendMessage(user.getChatId(),
-                    properties.getProperty("bot.messages.checkEmail"),
-                    null);
-            checkEmailAndSendActivateCode(user, message);
-        }
-        else if (user.getStatus().equals(Status.SEND_ACTIVATE_CODE)) {
-            checkActivateCodeAndUpdateSession(user, message);
-        }
-        else if (user.getStatus().equals(Status.SEND_FULL_NAME)) {
-            checkSessionAndSendPhoneMessage(user, message);
-        }
-        else if (user.getStatus().equals(Status.SEND_PHONE)) {
-            checkSessionAndSendAddressMessage(user, message);
-        }
-        else if (user.getStatus().equals(Status.SEND_ADDRESS)) {
-            checkSessionAndSendIndexAMessage(user, message);
-        }
-        else if (user.getStatus().equals(Status.SEND_INDEX)) {
-            createNewOrder(user, message);
-        }
-
     }
 
-
-    @Override
-    public void handleCourierMessageText(TelegramUser user, String message) {
-
-    }
 
     @Override
     public void handleCallbackQuery(CallbackQuery callbackQuery) {
@@ -201,35 +205,33 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
 
         if (callbackData.contains(CallbackData.PHOTO.name())) {
             sendEditPhotoPaginationMessage(message, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.MORE_INFO.name())) {
+        } else if (callbackData.contains(CallbackData.MORE_INFO.name())) {
             sendParamsForItem(message, callbackData, true);
-        }
-        else if (callbackData.contains(CallbackData.SHOR_INFO.name())) {
+        } else if (callbackData.contains(CallbackData.SHOR_INFO.name())) {
             sendParamsForItem(message, callbackData, false);
-        }
-        else if (callbackData.contains(CallbackData.DELETE_FAVORITE.name())) {
+        } else if (callbackData.contains(CallbackData.DELETE_FAVORITE.name())) {
             deleteFavoriteItemsByUser(user, message, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.ADD_CART.name())) {
+        } else if (callbackData.contains(CallbackData.ADD_CART.name())) {
             addItemToCart(user, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.DELETE_CART.name())) {
+        } else if (callbackData.contains(CallbackData.DELETE_CART.name())) {
             deleteItemInCart(user, message, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.ADD_FAVORITE.name())) {
+        } else if (callbackData.contains(CallbackData.ADD_FAVORITE.name())) {
             addItemToFavorite(user, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.CANCEL_ORDER.name())) {
+        } else if (callbackData.contains(CallbackData.CANCEL_ORDER.name())) {
             cancelOrderByUser(user, message, callbackData);
-        }
-        else if (callbackData.contains(CallbackData.GET_ITEM.name())) {
+        } else if (callbackData.contains(CallbackData.GET_ITEM.name())) {
             Long itemId = Long.parseLong(callbackData.split(":")[1]);
             sendItemInfo(user, itemId);
         }
+        /**
+         * COURIER
+         */
+        else if (callbackData.contains(CallbackData.DELIVERED.name())) {
+            Long orderId = Long.parseLong(callbackData.split(":")[1]);
+            sendConfirmMessage(user, orderId, message);
+        }
         userService.save(user);
     }
-
 
     private void sendMenuMessage(TelegramUser user) {
         boolean isAuthorized = sessionService.checkSessionByUserEmail(user);
@@ -237,6 +239,15 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                 properties.getProperty("bot.messages.menuMessage"),
                 keyboards.getMenuButtons(isAuthorized));
     }
+
+
+    private void sendCourierMenuMessage(TelegramUser user) {
+        boolean isAuthorized = sessionService.checkSessionByUserEmail(user);
+        sendMessage(user.getChatId(),
+                properties.getProperty("bot.messages.menuMessage"),
+                keyboards.getCourierMenuButtons(isAuthorized));
+    }
+
 
     private void checkEmailAndSendActivateCode(TelegramUser user, String email) {
         if (BotUtils.validateEmail(email)) {
@@ -251,8 +262,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                         properties.getProperty("bot.messages.activateCodeSentSuccessfully"),
                         null);
             }
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.messages.emailError"),
                     null);
@@ -264,12 +274,18 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
         if (LoginUtils.checkActivateCode(user.getEmail(), code)) {
             sessionService.login(user);
             user.setStatus(Status.EMPTY);
+
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.messages.authSuccess"),
                     null);
-            sendMenuMessage(user);
-        }
-        else {
+
+            if (user.getRole().equals(Role.USER)) {
+                sendMenuMessage(user);
+            }
+            else {
+                sendCourierMenuMessage(user);
+            }
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.messages.authError"),
                     keyboards.getNButtons(properties.getProperty("bot.buttons.backToMenu")));
@@ -282,13 +298,42 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
         opItem.ifPresent(item -> {
             List<Photo> photos = item.getPhotos();
             List<ItemParamsDto> mainParams = paramsService.getMainParamsByItem(item);
-            String itemInfo = ItemUtils.createMainItemParamsInfo(item ,mainParams);
+            String itemInfo = ItemUtils.createMainItemParamsInfo(item, mainParams);
             sendPhoto(user.getChatId(),
                     itemInfo,
                     keyboards.getItemInfoButton(item, CallbackData.ADD_FAVORITE, CallbackData.ADD_CART),
                     PHOTO_URL + photos.get(0).getPhotoName() + ".jpg");
         });
     }
+
+
+    private void showItemsByItemType(TelegramUser user, ItemType itemType) {
+        List<Item> items = itemService.getTopItemsByType(itemType, 0, 100).stream().collect(Collectors.toList());
+        if (items.size() > 0) {
+            items.forEach(item -> {
+                sendItemInfo(user, item.getId());
+            });
+        } else {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.itemNotFound"),
+                    null);
+        }
+    }
+
+
+    private void sendSearchItemsByTest(TelegramUser user, String message) {
+        List<Item> items = itemService.search(message, 0, 100).stream().collect(Collectors.toList());
+        if (items.size() > 0) {
+            items.forEach(item -> {
+                sendItemInfo(user, item.getId());
+            });
+        } else {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.itemNotFound"),
+                    null);
+        }
+    }
+
 
     private void sendFavoriteItemsByUser(TelegramUser user) {
         if (sessionService.checkSessionByUserEmail(user)) {
@@ -297,20 +342,18 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                 for (Item item : favorites) {
                     List<Photo> photos = item.getPhotos();
                     List<ItemParamsDto> mainParams = paramsService.getMainParamsByItem(item);
-                    String itemInfo = ItemUtils.createMainItemParamsInfo(item ,mainParams);
+                    String itemInfo = ItemUtils.createMainItemParamsInfo(item, mainParams);
                     sendPhoto(user.getChatId(),
                             itemInfo,
                             keyboards.getItemInfoButton(item, CallbackData.DELETE_FAVORITE, CallbackData.ADD_CART),
                             PHOTO_URL + photos.get(0).getPhotoName() + ".jpg");
                 }
-            }
-            else {
+            } else {
                 sendMessage(user.getChatId(),
                         properties.getProperty("bot.message.favoritesNotFound"),
                         null);
             }
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
                     keyboards.getMenuButtons(false));
@@ -332,7 +375,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
     }
 
 
-    private void deleteFavoriteItemsByUser(TelegramUser user ,Message message, String callbackData) {
+    private void deleteFavoriteItemsByUser(TelegramUser user, Message message, String callbackData) {
         Long itemId = Long.parseLong(callbackData.split(":")[1]);
         Optional<Item> item = itemService.getItemById(itemId);
         if (item.isPresent()) {
@@ -349,16 +392,16 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
         String[] values = callbackData.split(":");
         Long itemId = Long.parseLong(values[1]);
         int photoId = Integer.parseInt(values[2]);
-         Optional<Item> item = itemService.getItemById(itemId);
-         if (item.isPresent()) {
-             List<Photo> photos = item.get().getPhotos();
+        Optional<Item> item = itemService.getItemById(itemId);
+        if (item.isPresent()) {
+            List<Photo> photos = item.get().getPhotos();
 
-             editMessageMedia(message.getChatId().toString(),
-                     message.getMessageId(),
-                     message.getCaption(),
-                     keyboards.editInlineButtonPagination(message.getReplyMarkup(), item.get(), photoId),
-                     PHOTO_URL + photos.get(photoId).getPhotoName() + ".jpg");
-         }
+            editMessageMedia(message.getChatId().toString(),
+                    message.getMessageId(),
+                    message.getCaption(),
+                    keyboards.editInlineButtonPagination(message.getReplyMarkup(), item.get(), photoId),
+                    PHOTO_URL + photos.get(photoId).getPhotoName() + ".jpg");
+        }
     }
 
 
@@ -372,10 +415,9 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             if (isMore) {
                 Map<String, List<ItemParamsDto>> params = paramsService.getAllSortedItemParams(item);
                 itemInfo = ItemUtils.createInfoTextWithAllParams(item, params);
-            }
-            else {
+            } else {
                 List<ItemParamsDto> mainParams = paramsService.getMainParamsByItem(item);
-                itemInfo = ItemUtils.createMainItemParamsInfo(item ,mainParams);
+                itemInfo = ItemUtils.createMainItemParamsInfo(item, mainParams);
             }
 
             if (itemInfo.length() > 1020)
@@ -418,8 +460,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                     keyboards.getNButtons(properties.getProperty("bot.buttons.createNewOrder"),
                             properties.getProperty("bot.buttons.removeCart"),
                             properties.getProperty("bot.buttons.backToMenu")));
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.cartItemsIsEmpty"),
                     null);
@@ -456,8 +497,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.sendFullName"),
                     keyboards.getNButtons(properties.getProperty("bot.buttons.backToMenu")));
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
                     keyboards.getMenuButtons(false));
@@ -472,8 +512,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.sendPhone"),
                     null);
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
                     keyboards.getMenuButtons(false));
@@ -489,14 +528,12 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                 sendMessage(user.getChatId(),
                         properties.getProperty("bot.message.sendAddress"),
                         null);
-            }
-            else {
+            } else {
                 sendMessage(user.getChatId(),
                         properties.getProperty("bot.message.sendAgainPhone"),
                         null);
             }
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
                     keyboards.getMenuButtons(false));
@@ -511,8 +548,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.sendIndex"),
                     keyboards.getNButtons(properties.getProperty("bot.buttons.next"), properties.getProperty("bot.buttons.backToMenu")));
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
                     keyboards.getMenuButtons(false));
@@ -521,21 +557,28 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
 
 
     private void sendListMyOrdersByUser(TelegramUser user) {
-        List<Order> orders = orderService.getOrdersByUserEmail(user.getEmail());
-        if (orders.size() > 0) {
-            orders.forEach(order -> {
-                String messageText = ItemUtils.createOrdersText(order);
+        if (sessionService.checkSessionByUserEmail(user)) {
+            List<Order> orders = orderService.getOrdersByUserEmail(user.getEmail());
+            if (orders.size() > 0) {
+                orders.forEach(order -> {
+                    String messageText = ItemUtils.createOrdersText(order);
+                    sendMessage(user.getChatId(),
+                            messageText,
+                            keyboards.getOrderButtons(order));
+                });
+            } else {
                 sendMessage(user.getChatId(),
-                        messageText,
-                        keyboards.getOrderButtons(order));
-            });
+                        properties.getProperty("bot.message.orderNotFound"),
+                        null);
+            }
         }
         else {
             sendMessage(user.getChatId(),
-                    properties.getProperty("bot.message.orderNotFound"),
-                    null);
+                    properties.getProperty("bot.message.youNeedToLogin"),
+                    keyboards.getMenuButtons(false));
         }
     }
+
 
 
     private void createNewOrder(TelegramUser user, String index) {
@@ -555,8 +598,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                             keyboards.getNButtons(properties.getProperty("bot.buttons.backToMenu")));
                 }
             }
-        }
-        else {
+        } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.indexError"),
                     null);
@@ -572,6 +614,105 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
                 properties.getProperty("bot.message.cancelOrderSuccess"),
                 null);
     }
+
+
+    private void sendCourierOrders(TelegramUser user) {
+        List<Order> orders = orderService.getAllCourierOrders(user.getEmail());
+        if (!orders.isEmpty()) {
+            orders.forEach(order -> {
+                String text = String.format(properties.getProperty("bot.message.orderText"),
+                        order.getConsumerName(),
+                        order.getConsumerPhone(),
+                        order.getConsumerEmail(),
+                        order.getDeliveryAddress(),
+                        order.getConsumerIndex(),
+                        order.getTotal(),
+                        order.getItems().stream().map(Item::getFullName).collect(Collectors.joining(",\n")));
+
+                sendMessage(user.getChatId(),
+                        text,
+                        keyboards.getOrderInfoButton(order));
+            });
+        }
+        else {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.ordersNotFound"),
+                    null);
+        }
+    }
+
+
+    private void sendCourierDeliveredOrders(TelegramUser user) {
+        List<Order> orders = orderService.getAllDeliveredCourierOrders(user.getEmail());
+        if (!orders.isEmpty()) {
+            orders.forEach(order -> {
+                String text = String.format(properties.getProperty("bot.message.deliveredOrderText"),
+                        order.getConsumerName(),
+                        order.getConsumerPhone(),
+                        order.getConsumerEmail(),
+                        order.getDeliveryAddress(),
+                        order.getConsumerIndex(),
+                        order.getTotal(),
+                        order.getItems().stream().map(Item::getFullName).collect(Collectors.joining(",\n")),
+                        order.getOrderDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")));
+
+                sendMessage(user.getChatId(),
+                        text,
+                        null);
+            });
+        }
+        else {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.ordersNotFound"),
+                    null);
+        }
+    }
+
+
+    private void sendConfirmMessage(TelegramUser user, Long orderId, Message message) {
+        Optional<Order> opOrder = orderService.getById(orderId);
+        opOrder.ifPresent(order -> {
+            String code = DeliveryUtils.generateCode(orderId);
+
+            deleteMessage(user.getChatId(), message.getMessageId());
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.emailSending"),
+                    null);
+
+            mailSender.send("Smart shop",
+                    "Сәлеметсіз бе! Тапсырысты растау коды: " + code,
+                    order.getConsumerEmail());
+
+            user.setStatus(Status.CONFIRM_ORDER);
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.confirmOrder"),
+                    null);
+        });
+    }
+
+
+    private void checkOrderCode(TelegramUser user, String code) {
+        Long orderId = DeliveryUtils.get(code);
+        if (orderId != null) {
+            Optional<Order> opOrder = orderService.getById(orderId);
+            opOrder.ifPresent(order -> {
+                order.setStatus(OrderStatus.DELIVERED);
+                order.setOrderDate(LocalDateTime.now());
+                orderService.save(order);
+
+                user.setStatus(Status.EMPTY);
+                sendMessage(user.getChatId(),
+                        properties.getProperty("bot.message.confirmSuccess"),
+                        null);
+            });
+        }
+        else {
+            sendMessage(user.getChatId(),
+                    properties.getProperty("bot.message.codeError"),
+                    null);
+        }
+    }
+
 
 
     private Message sendMessage(String chatId, String text, ReplyKeyboard keyboard) {
@@ -611,7 +752,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
     }
 
 
-    private void editMessageMedia(String chatId, Integer messageId, String caption, InlineKeyboardMarkup keyboard, String photoName ) {
+    private void editMessageMedia(String chatId, Integer messageId, String caption, InlineKeyboardMarkup keyboard, String photoName) {
         String mediaName = UUID.randomUUID().toString();
         EditMessageMedia editMessage = EditMessageMedia.builder()
                 .media(InputMediaPhoto.builder()

@@ -72,6 +72,28 @@ public class Keyboards {
     }
 
 
+    public ReplyKeyboard getCourierMenuButtons(boolean isAuthorized) {
+        ReplyKeyboardMarkup replyKeyboardMarkup = createReplyKeyboard();
+
+        List<KeyboardRow> listRows = new ArrayList<>();
+
+        KeyboardRow row1 = new KeyboardRow();
+        row1.add(isAuthorized ? new KeyboardButton(properties.getProperty("bot.buttons.logout")) :
+                new KeyboardButton(properties.getProperty("bot.buttons.login")));
+        listRows.add(row1);
+
+        KeyboardRow row2 = new KeyboardRow();
+        row2.add(new KeyboardButton(properties.getProperty("bot.buttons.courierOrders")));
+        listRows.add(row2);
+
+        KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton(properties.getProperty("bot.buttons.courierDeliveredOrders")));
+        listRows.add(row3);
+
+        replyKeyboardMarkup.setKeyboard(listRows);
+        return replyKeyboardMarkup;
+    }
+
     @SneakyThrows
     public ReplyKeyboard getItemInfoButton(Item item, CallbackData favorite, CallbackData cart) {
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
@@ -223,5 +245,16 @@ public class Keyboards {
         }
         markup.setKeyboard(rows);
         return markup;
+    }
+
+    public ReplyKeyboard getOrderInfoButton(Order order) {
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+
+        InlineKeyboardButton delivery = new InlineKeyboardButton();
+        delivery.setText("Тапсырысты беру");
+        delivery.setCallbackData(CallbackData.DELIVERED.name() + ":" + order.getId());
+
+        keyboard.setKeyboard(Collections.singletonList(Collections.singletonList(delivery)));
+        return keyboard;
     }
 }

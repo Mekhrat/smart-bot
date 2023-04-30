@@ -39,7 +39,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public List<Order> getOrdersByUserEmail(String email) {
-        return orderRepository.getAllOrdersByUserEmail(email);
+        return orderRepository.getAllOrdersByCourierEmail(email);
     }
 
     @Override
@@ -50,5 +50,26 @@ public class OrderServiceImpl implements OrderService {
             order.setStatus(OrderStatus.CANCELED);
             orderRepository.save(order);
         }
+    }
+
+    @Override
+    public List<Order> getAllCourierOrders(String email) {
+        return orderRepository.findAllByCourierEmailAndStatus(email, OrderStatus.ISSUED_TO_THE_COURIER);
+    }
+
+    @Override
+    public List<Order> getAllDeliveredCourierOrders(String email) {
+        LocalDateTime now = LocalDateTime.now().withHour(0).withMinute(0);
+        return orderRepository.findAllByCourierEmailAndStatusAndOrderDateAfter(email, OrderStatus.DELIVERED, now);
+    }
+
+    @Override
+    public Optional<Order> getById(Long id) {
+        return orderRepository.findById(id);
+    }
+
+    @Override
+    public Order save(Order order) {
+        return orderRepository.save(order);
     }
 }

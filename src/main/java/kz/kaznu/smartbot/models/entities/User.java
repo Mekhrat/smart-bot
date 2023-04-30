@@ -8,6 +8,7 @@ import javax.persistence.ManyToMany;
 import javax.persistence.Table;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 @Table(name = "users")
 @Entity
@@ -25,4 +26,8 @@ public class User extends BaseEntity{
     private boolean isBlocked;
     private LocalDateTime birthday;
     private boolean activated;
+
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    private Set<Role> roles;
 }

@@ -31,4 +31,5 @@ public class Order extends BaseEntity{
     private String consumerEmail;
     private String consumerPhone;
     private String consumerIndex;
+    private String courierEmail;
 }
