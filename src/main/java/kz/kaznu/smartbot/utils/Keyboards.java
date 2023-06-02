@@ -257,4 +257,15 @@ public class Keyboards {
         keyboard.setKeyboard(Collections.singletonList(Collections.singletonList(delivery)));
         return keyboard;
     }
+
+    public ReplyKeyboard getPaymentButton() {
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+
+        InlineKeyboardButton delivery = new InlineKeyboardButton();
+        delivery.setText(properties.getProperty("bot.buttons.paybox"));
+        delivery.setUrl("https://api.paybox.money/payment.php?pg_merchant_id=516078&pg_amount=539000&pg_currency=KZT&pg_description=%D0%A1%D0%BC%D0%B0%D1%80%D1%82%D1%84%D0%BE%D0%BD&pg_salt=571VsaLn08TlR0wY&pg_language=kk&pg_sig=12d5c714f507a38f8888a44ce49e82b7");
+
+        keyboard.setKeyboard(Collections.singletonList(Collections.singletonList(delivery)));
+        return keyboard;
+    }
 }

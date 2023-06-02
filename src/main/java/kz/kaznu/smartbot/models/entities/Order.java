@@ -29,6 +29,7 @@ public class Order extends BaseEntity{
     private String consumerName;
     private String deliveryAddress;
     private String consumerEmail;
+    private boolean isPaid;
     private String consumerPhone;
     private String consumerIndex;
     private String courierEmail;

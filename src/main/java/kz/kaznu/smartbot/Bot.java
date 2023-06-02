@@ -148,6 +148,8 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             checkSessionAndSendFullNameMessage(user);
         } else if (message.equals(properties.getProperty("bot.buttons.next"))) {
             createNewOrder(user, "");
+        } else if (message.equals(properties.getProperty("bot.buttons.pay"))) {
+            sendPaymentPage(user);
         }
 
         /**
@@ -547,7 +549,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             user.setStatus(Status.SEND_INDEX);
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.sendIndex"),
-                    keyboards.getNButtons(properties.getProperty("bot.buttons.next"), properties.getProperty("bot.buttons.backToMenu")));
+                    keyboards.getNButtons(properties.getProperty("bot.buttons.next"), properties.getProperty("bot.buttons.pay") ,properties.getProperty("bot.buttons.backToMenu")));
         } else {
             sendMessage(user.getChatId(),
                     properties.getProperty("bot.message.youNeedToLogin"),
@@ -698,6 +700,7 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
             opOrder.ifPresent(order -> {
                 order.setStatus(OrderStatus.DELIVERED);
                 order.setOrderDate(LocalDateTime.now());
+                order.setPaid(true);
                 orderService.save(order);
 
                 user.setStatus(Status.EMPTY);
@@ -713,6 +716,12 @@ public class Bot extends TelegramLongPollingBot implements MessageHandler {
         }
     }
 
+
+    private void sendPaymentPage(TelegramUser user) {
+        sendMessage(user.getChatId(),
+                properties.getProperty("bot.message.payment"),
+                keyboards.getPaymentButton());
+    }
 
 
     private Message sendMessage(String chatId, String text, ReplyKeyboard keyboard) {
